@@ -11,6 +11,24 @@ Currently, two official plugins are available:
 
 The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
 
+## Setup & Running
+
+### Windows
+1.  Double-click `run_honeypot.bat`.
+
+### Linux (Kali)
+1.  **Installation:**
+    ```bash
+    chmod +x install_kali.sh
+    ./install_kali.sh
+    ```
+2.  **Running:**
+    ```bash
+    chmod +x run_honeypot.sh
+    sudo ./run_honeypot.sh
+    ```
+    *Note: `sudo` is required to listen on ports like 21, 22, and 80.*
+
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
