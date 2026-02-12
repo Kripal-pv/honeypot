@@ -1,86 +1,110 @@
 import socket
 import threading
 import database
+import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 class HoneypotService:
     def __init__(self):
         self.running = False
         self.threads = []
         self.sockets = []
-        # Default configuration
-        self.config = {
-            'ports': [21, 22, 80, 443, 8080],
-            'custom_ports': []
-        }
+        self.active_config = [] 
 
-    def handle_connection(self, client_socket, address, port):
+    def handle_connection(self, client_socket, address, port, service_type):
         ip = address[0]
         try:
-            # Basic banner grabbing / emulation
-            if port == 21:
-                client_socket.send(b"220 FTP Server Ready\r\n")
-            elif port == 22:
-                client_socket.send(b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5\r\n")
-            elif port == 80 or port == 8080:
-                 # Minimal HTTP response to keep scanner happy
-                pass
+            # Service Emulation Logic
+            banner = b""
+            if service_type == 'ftp':
+                banner = b"220 FTP Server Ready\r\n"
+            elif service_type == 'ssh':
+                banner = b"SSH-2.0-OpenSSH_8.2p1 Ubuntu-4ubuntu0.5\r\n"
+            elif service_type == 'telnet':
+                banner = b"Welcome to Microsoft Telnet Service \r\nlogin: "
+            elif service_type == 'mysql':
+                banner = b"\x4a\x00\x00\x00\x0a\x35\x2e\x35\x2e\x35\x2d\x31\x30\x2e\x34\x2e\x31\x33\x2d\x4d\x61\x72\x69\x61\x44\x42\x00\x0d\x00\x00\x00"
             
-            # Receive data (first packet usually contains interesting info)
+            if banner:
+                client_socket.send(banner)
+
             client_socket.settimeout(5)
             try:
                 data = client_socket.recv(1024)
-                payload = data.decode('utf-8', errors='ignore')
+                try:
+                    payload = data.decode('utf-8')
+                except:
+                    payload = f"<Binary Data> {data.hex()}"
+                
+                if not payload:
+                    payload = "<Connection without data>"
             except socket.timeout:
-                payload = "<No Data>"
+                payload = "<Connection Timeout / No Data>"
             except Exception as e:
                 payload = f"<Error: {str(e)}>"
 
-            print(f"[!] Connection from {ip}:{address[1]} on port {port} | Payload: {payload[:50]}...")
-            database.add_log(ip, port, payload)
+            print(f"[HIT] {service_type.upper()}://{ip}:{port}")
+            database.add_log(ip, port, f"[{service_type.upper()}] {payload}")
             
             client_socket.close()
         except Exception as e:
-            print(f"Error handling connection: {e}")
+            logger.error(f"Connection handler error: {e}")
 
-    def start_listener(self, port):
+    def start_listener(self, port_config):
+        port = int(port_config['port'])
+        service_type = port_config.get('type', 'generic')
+        
         try:
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             server.bind(('0.0.0.0', port))
             server.listen(5)
             self.sockets.append(server)
-            print(f"[*] Listening on port {port}")
+            logger.info(f"Started listener on port {port}")
             
             while self.running:
                 try:
                     server.settimeout(1.0)
                     client, addr = server.accept()
-                    threading.Thread(target=self.handle_connection, args=(client, addr, port)).start()
+                    threading.Thread(target=self.handle_connection, args=(client, addr, port, service_type)).start()
                 except socket.timeout:
                     continue
                 except Exception as e:
                     if self.running: 
-                        print(f"Error accepting connection on {port}: {e}")
+                        logger.error(f"Accept error on {port}: {e}")
                     break
+        except PermissionError:
+             logger.error(f"Permission denied for port {port}")
         except Exception as e:
-            print(f"Failed to bind port {port}: {e}")
+            logger.error(f"Bind error on {port}: {e}")
 
-    def start(self, selected_ports):
+    def start(self, config):
         if self.running:
             return "Already running"
         
         self.running = True
         self.sockets = []
         self.threads = []
+        self.active_config = config
         
-        # Merge default and custom ports if needed, for now just use selected
-        ports_to_listen = selected_ports if selected_ports else self.config['ports']
-
-        for port in ports_to_listen:
-            t = threading.Thread(target=self.start_listener, args=(int(port),))
+        for item in config:
+            # Handle both object and int (backward compat)
+            if isinstance(item, int):
+                item = {'port': item, 'type': 'generic'}
+            
+            t = threading.Thread(target=self.start_listener, args=(item,))
             t.daemon = True
             t.start()
             self.threads.append(t)
         
+        time.sleep(1.0) # Increased wait time for stability
+        
+        if not self.sockets:
+             self.running = False
+             return "Failed to bind any ports. Check permissions/conflicts."
+
         return "Started"
 
     def stop(self):

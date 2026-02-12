@@ -33,3 +33,10 @@ def get_logs(limit=50):
     rows = c.fetchall()
     conn.close()
     return [dict(row) for row in rows]
+
+def clear_logs():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("DELETE FROM logs")
+    conn.commit()
+    conn.close()
